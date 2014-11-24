@@ -15,7 +15,7 @@
  */
 package org.springframework.data.redis.test.util;
 
-import java.lang.reflect.Method;
+import java.lang.reflect.AnnotatedElement;
 
 import org.junit.Ignore;
 import org.junit.runners.model.FrameworkMethod;
@@ -23,33 +23,40 @@ import org.junit.runners.model.InitializationError;
 import org.springframework.test.annotation.IfProfileValue;
 import org.springframework.test.annotation.ProfileValueSource;
 import org.springframework.test.annotation.ProfileValueUtils;
-import org.springframework.test.context.junit4.SpringJUnit4ClassRunner;
+import org.springframework.test.context.junit4.PatchedSpringJUnit4ClassRunner;
 import org.springframework.util.ObjectUtils;
 import org.springframework.util.StringUtils;
 
 /**
- * Extends the {@link SpringJUnit4ClassRunner} to accept {@code +} as wildcard for values tweaking comparison a litte so
+ * Extends the {@link PatchedSpringJUnit4ClassRunner} to accept {@code +} as wildcard for values tweaking comparison a litte so
  * that tests marked {@code IfProfileValue(name="varName" value="2.6+"} will be executed in
  * {@code 2.6, 2.6.1, 2.8, 3.0,... } environments.
  *
  * @author Christoph Strobl
  */
-public class RelaxedJUnit4ClassRunner extends SpringJUnit4ClassRunner {
+public class RelaxedJUnit4ClassRunner extends PatchedSpringJUnit4ClassRunner {
 
 	public RelaxedJUnit4ClassRunner(Class<?> clazz) throws InitializationError {
 		super(clazz);
 	}
-
+	
 	@Override
 	protected boolean isTestMethodIgnored(FrameworkMethod frameworkMethod) {
+		return isAnnotatedElementIgnored(frameworkMethod.getMethod());
+	}
+	
+	@Override
+	protected boolean isTestClassIgnored(Class<?> testClass) {
+		return isAnnotatedElementIgnored(testClass);
+	}
 
-		Method method = frameworkMethod.getMethod();
-
-		if (method.isAnnotationPresent(Ignore.class)) {
+	private boolean isAnnotatedElementIgnored(AnnotatedElement annotatedElement) {
+		
+		if (annotatedElement.isAnnotationPresent(Ignore.class)) {
 			return true;
 		}
 
-		IfProfileValue ifProfileValue = method.getAnnotation(IfProfileValue.class);
+		IfProfileValue ifProfileValue = annotatedElement.getAnnotation(IfProfileValue.class);
 		if (ifProfileValue == null) {
 			return false;
 		}
