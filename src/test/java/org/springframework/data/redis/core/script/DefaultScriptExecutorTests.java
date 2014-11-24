@@ -244,4 +244,23 @@ public class DefaultScriptExecutorTests {
 		assertEquals("HELLO", scriptExecutor.execute(script, null));
 		assertEquals("HELLO", scriptExecutor.execute(script, null));
 	}
+	
+	
+	/**
+	 * @see DATAREDIS-356
+	 */
+	@Test
+	public void shouldTransparentlyReEvaluateScriptIfNotPresent() throws Exception {
+		
+		this.template = new StringRedisTemplate();
+		template.setConnectionFactory(connFactory);
+		template.afterPropertiesSet();
+		
+		DefaultRedisScript<String> script = new DefaultRedisScript<String>();
+		script.setScriptText("return 'BUBU" + System.currentTimeMillis() + "'");
+		script.setResultType(String.class);
+		
+		ScriptExecutor<String> scriptExecutor = new DefaultScriptExecutor<String>(template);
+		assertEquals("BUBU", scriptExecutor.execute(script, null).substring(0,4));
+	}
 }
