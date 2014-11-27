@@ -54,8 +54,6 @@ import org.springframework.test.context.ContextConfiguration;
 @IfProfileValue(name = "redisVersion", value = "2.6+")
 public abstract class AbstractDefaultScriptExecutorTests {
 
-	// @Autowired private RedisConnectionFactory connFactory;
-
 	@SuppressWarnings("rawtypes") private RedisTemplate template;
 
 	protected abstract RedisConnectionFactory getConnectionFactory();
