@@ -1,5 +1,5 @@
 /*
- * Copyright 2013 the original author or authors.
+ * Copyright 2013-2014 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,12 +21,11 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
+import org.junit.ClassRule;
 import org.junit.Test;
-import org.junit.runner.RunWith;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.Person;
-import org.springframework.data.redis.RedisTestProfileValueSource;
 import org.springframework.data.redis.connection.RedisConnection;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.data.redis.core.RedisCallback;
@@ -37,24 +36,24 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.serializer.GenericToStringSerializer;
 import org.springframework.data.redis.serializer.JacksonJsonRedisSerializer;
 import org.springframework.data.redis.serializer.StringRedisSerializer;
-import org.springframework.data.redis.test.util.RelaxedJUnit4ClassRunner;
+import org.springframework.data.redis.test.util.MinimumRedisVersionRule;
 import org.springframework.scripting.support.StaticScriptSource;
 import org.springframework.test.annotation.IfProfileValue;
-import org.springframework.test.annotation.ProfileValueSourceConfiguration;
-import org.springframework.test.context.ContextConfiguration;
 
 /**
  * Integration test of {@link DefaultScriptExecutor}
  * 
  * @author Jennifer Hickey
+ * @author Thomas Darimont
+ * @author Christoph Strobl
  */
-@RunWith(RelaxedJUnit4ClassRunner.class)
-@ContextConfiguration
-@ProfileValueSourceConfiguration(RedisTestProfileValueSource.class)
 @IfProfileValue(name = "redisVersion", value = "2.6+")
 public abstract class AbstractDefaultScriptExecutorTests {
 
-	@SuppressWarnings("rawtypes") private RedisTemplate template;
+	public static @ClassRule MinimumRedisVersionRule minRedisVersion = new MinimumRedisVersionRule();
+
+	@SuppressWarnings("rawtypes")//
+	private RedisTemplate template;
 
 	protected abstract RedisConnectionFactory getConnectionFactory();
 
