@@ -1,5 +1,5 @@
 /*
- * Copyright 2014 the original author or authors.
+ * Copyright 2014-2015 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,34 +18,38 @@ package org.springframework.data.redis.connection.lettuce;
 import static org.mockito.Matchers.*;
 import static org.mockito.Mockito.*;
 
+import java.lang.reflect.InvocationTargetException;
+
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.Suite;
+import org.springframework.dao.InvalidDataAccessResourceUsageException;
 import org.springframework.data.redis.connection.AbstractConnectionUnitTestBase;
 import org.springframework.data.redis.connection.RedisServerCommands.ShutdownOption;
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionUnitTestSuite.LettuceConnectionUnitTests;
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionUnitTestSuite.LettucePipelineConnectionUnitTests;
 
-import com.lambdaworks.redis.RedisAsyncConnection;
+import com.lambdaworks.redis.RedisAsyncConnectionImpl;
 import com.lambdaworks.redis.RedisClient;
 import com.lambdaworks.redis.codec.RedisCodec;
 
 /**
  * @author Christoph Strobl
+ * @author Mark Paluch
  */
 @RunWith(Suite.class)
 @Suite.SuiteClasses({ LettuceConnectionUnitTests.class, LettucePipelineConnectionUnitTests.class })
 public class LettuceConnectionUnitTestSuite {
 
 	@SuppressWarnings("rawtypes")
-	public static class LettuceConnectionUnitTests extends AbstractConnectionUnitTestBase<RedisAsyncConnection> {
+	public static class LettuceConnectionUnitTests extends AbstractConnectionUnitTestBase<RedisAsyncConnectionImpl> {
 
 		protected LettuceConnection connection;
 
 		@SuppressWarnings({ "unchecked" })
 		@Before
-		public void setUp() {
+		public void setUp() throws InvocationTargetException, IllegalAccessException {
 
 			RedisClient clientMock = mock(RedisClient.class);
 			when(clientMock.connectAsync((RedisCodec) any())).thenReturn(getNativeRedisConnectionMock());
@@ -83,8 +87,6 @@ public class LettuceConnectionUnitTestSuite {
 		}
 
 		/**
-		 * <<<<<<< HEAD
-		 * 
 		 * @see DATAREDIS-267
 		 */
 		@Test
@@ -132,13 +134,21 @@ public class LettuceConnectionUnitTestSuite {
 			connection.slaveOfNoOne();
 			verifyNativeConnectionInvocation().slaveofNoOne();
 		}
+
+		/**
+		 * @see DATAREDIS-348
+		 */
+		@Test(expected = InvalidDataAccessResourceUsageException.class)
+		public void shouldThrowExceptionWhenAccessingRedisSentinelsCommandsWhenNoSentinelsConfigured() {
+			connection.getSentinelConnection();
+		}
 	}
 
 	public static class LettucePipelineConnectionUnitTests extends LettuceConnectionUnitTests {
 
 		@Override
 		@Before
-		public void setUp() {
+		public void setUp() throws InvocationTargetException, IllegalAccessException {
 			super.setUp();
 			this.connection.openPipeline();
 		}

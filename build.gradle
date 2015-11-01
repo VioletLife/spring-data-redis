@@ -5,7 +5,7 @@ buildscript {
     }
     dependencies {
         classpath 'org.springframework.build.gradle:bundlor-plugin:0.1.2'
-        classpath 'org.springframework.build.gradle:spring-io-plugin:0.0.3.RELEASE'
+        classpath 'io.spring.gradle:spring-io-plugin:0.0.4.RELEASE'
         classpath 'me.champeau.gradle:gradle-javadoc-hotfix-plugin:0.1'
         classpath 'io.spring.gradle:docbook-reference-plugin:0.3.0'
         classpath 'org.asciidoctor:asciidoctor-gradle-plugin:1.5.0'
@@ -17,8 +17,9 @@ description = 'Spring Data Redis'
 group = 'org.springframework.data'
 
 repositories {
-  maven { url "http://repo.spring.io/libs-snapshot" }
-  maven { url "http://repo.spring.io/plugins-release" }
+  maven { url "https://repo.spring.io/libs-snapshot" }
+  maven { url "https://repo.spring.io/plugins-release" }
+  maven { url "https://oss.sonatype.org/content/repositories/snapshots/" }
   mavenCentral()
   jcenter()
 }
@@ -43,8 +44,12 @@ if (project.hasProperty('platformVersion')) {
         maven { url "https://repo.spring.io/libs-snapshot" }
     }
 
-    dependencies {
-        springIoVersions "io.spring.platform:platform-versions:${platformVersion}@properties"
+    dependencyManagement {
+        springIoTestRuntime {
+            imports {
+                mavenBom "io.spring.platform:platform-bom:${platformVersion}"
+            }
+        }
     }
 }
 
@@ -80,11 +85,11 @@ dependencies {
     compile("com.github.spullara.redis:client:$srpVersion", optional)
     compile("org.jredis:jredis-core-api:$jredisVersion", optional)
     compile("org.jredis:jredis-core-ri:$jredisVersion", optional)
-    compile("com.lambdaworks:lettuce:$lettuceVersion", optional)
+    compile("biz.paluch.redis:lettuce:$lettuceVersion", optional)
 
     // Mappers
     compile("org.codehaus.jackson:jackson-mapper-asl:$jacksonVersion", optional)
-    compile("commons-beanutils:commons-beanutils-core:1.8.3", optional)
+    compile("commons-beanutils:commons-beanutils:1.9.2", optional)
     compile("com.fasterxml.jackson.core:jackson-core:$fasterXmlJacksonVersion", optional)
     compile("com.fasterxml.jackson.core:jackson-databind:$fasterXmlJacksonDatabindVersion", optional)
 
@@ -95,6 +100,7 @@ dependencies {
     testCompile "junit:junit:$junitVersion"
     testCompile "org.springframework:spring-test:$springVersion"
     testCompile "org.springframework:spring-jdbc:$springVersion"
+    testCompile 'org.testinfected.hamcrest-matchers:core-matchers:1.8'
     testCompile "org.mockito:mockito-core:$mockitoVersion"
     testCompile("javax.annotation:jsr250-api:1.0", optional)
     testCompile("com.thoughtworks.xstream:xstream:1.4.4", optional)
@@ -106,13 +112,23 @@ dependencies {
 sourceCompatibility = 1.6
 targetCompatibility = 1.6
 
+if (JavaVersion.current().isJava8Compatible()) {
+    allprojects {
+      tasks.withType(Javadoc) {
+        options.addStringOption('Xdoclint:none', '-quiet')
+      }
+    }
+  }
+
 javadoc {
+  dependsOn = [ 'extractSharedResources' ]
+
   ext.srcDir = file("${projectDir}/docs/src/api")
   destinationDir = file("${buildDir}/api")
   ext.tmpDir = file("${buildDir}/api-work")
 
   configure(options) {
-      stylesheetFile = file("${srcDir}/spring-javadoc.css")
+      stylesheetFile = file("$buildDir/shared-resources/javadoc/spring-javadoc.css")
       overview = "${srcDir}/overview.html"
       docFilesSubDirs = true
       outputLevel = org.gradle.external.javadoc.JavadocOutputLevel.QUIET
@@ -212,7 +228,7 @@ task docsZip(type: Zip, dependsOn:['asciidoctor', 'referencePdf' ]) {
         into 'api'
     }
 
-    from ("$buildDir/reference/html") {
+    from (asciidoctor.outputDir) {
         include "index.html"
         include "spring.css"
         into 'reference/html'

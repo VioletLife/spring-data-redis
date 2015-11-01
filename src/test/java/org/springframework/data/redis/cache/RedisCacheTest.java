@@ -16,18 +16,14 @@
 
 package org.springframework.data.redis.cache;
 
-import static org.hamcrest.core.IsEqual.equalTo;
-import static org.hamcrest.core.IsInstanceOf.instanceOf;
-import static org.hamcrest.core.IsNot.not;
-import static org.hamcrest.core.IsNull.nullValue;
-import static org.hamcrest.core.IsSame.sameInstance;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertThat;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assume.assumeThat;
-import static org.springframework.data.redis.matcher.RedisTestMatchers.isEqual;
+import static org.hamcrest.core.IsEqual.*;
+import static org.hamcrest.core.IsInstanceOf.*;
+import static org.hamcrest.core.IsNot.*;
+import static org.hamcrest.core.IsNull.*;
+import static org.hamcrest.core.IsSame.*;
+import static org.junit.Assert.*;
+import static org.junit.Assume.*;
+import static org.springframework.data.redis.matcher.RedisTestMatchers.*;
 
 import java.util.Collection;
 import java.util.concurrent.CountDownLatch;
@@ -42,7 +38,6 @@ import org.junit.runners.Parameterized;
 import org.junit.runners.Parameterized.Parameters;
 import org.springframework.cache.Cache;
 import org.springframework.cache.Cache.ValueWrapper;
-import org.springframework.cache.CacheManager;
 import org.springframework.data.redis.ConnectionFactoryTracker;
 import org.springframework.data.redis.ObjectFactory;
 import org.springframework.data.redis.core.AbstractOperationsTestParams;
@@ -150,7 +145,10 @@ public class RedisCacheTest extends AbstractNativeCacheTest<RedisTemplate> {
 
 	@Test
 	public void testCacheName() throws Exception {
-		CacheManager redisCM = new RedisCacheManager(template);
+
+		RedisCacheManager redisCM = new RedisCacheManager(template);
+		redisCM.afterPropertiesSet();
+
 		String cacheName = "s2gx11";
 		Cache cache = redisCM.getCache(cacheName);
 		assertNotNull(cache);
@@ -252,28 +250,28 @@ public class RedisCacheTest extends AbstractNativeCacheTest<RedisTemplate> {
 
 	/**
 	 * @see DATAREDIS-344
+	 * @see DATAREDIS-416
 	 */
 	@Test
 	public void putIfAbsentShouldSetValueOnlyIfNotPresent() {
 
 		assumeThat(cache, instanceOf(RedisCache.class));
 
-		RedisCache redisCache = (RedisCache)cache;
-		
+		RedisCache redisCache = (RedisCache) cache;
+
 		Object key = getKey();
 		template.delete(key);
 
 		Object value = getValue();
+
+		assertThat(redisCache.putIfAbsent(key, value), nullValue());
+
 		ValueWrapper wrapper = redisCache.putIfAbsent(key, value);
 
-		assertThat(wrapper.get(), sameInstance(value));
-
-		ValueWrapper wrapper2 = redisCache.putIfAbsent(key, value);
-
 		if (!(value instanceof Number)) {
-			assertThat(wrapper2.get(), not(sameInstance(value)));
+			assertThat(wrapper.get(), not(sameInstance(value)));
 		}
 
-		assertThat(wrapper2.get(), equalTo(value));
+		assertThat(wrapper.get(), equalTo(value));
 	}
 }

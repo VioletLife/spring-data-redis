@@ -1,5 +1,5 @@
 /*
- * Copyright 2014 the original author or authors.
+ * Copyright 2014-2015 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -815,6 +815,71 @@ public class RedisConnectionUnitTests {
 		@Override
 		public void pfMerge(byte[] destinationKey, byte[]... sourceKeys) {
 			delegate.pfMerge(destinationKey, sourceKeys);
+		}
+
+		@Override
+		public Set<byte[]> zRangeByLex(byte[] key) {
+			return delegate.zRangeByLex(key);
+		}
+
+		@Override
+		public Set<byte[]> zRangeByLex(byte[] key, Range range) {
+			return delegate.zRangeByLex(key, range);
+		}
+
+		@Override
+		public Set<byte[]> zRangeByLex(byte[] key, Range range, Limit limit) {
+			return delegate.zRangeByLex(key, range, limit);
+		}
+
+		@Override
+		public Set<Tuple> zRangeByScoreWithScores(byte[] key, Range range, Limit limit) {
+			return delegate.zRangeByScoreWithScores(key, range, limit);
+		}
+
+		@Override
+		public Set<byte[]> zRevRangeByScore(byte[] key, Range range) {
+			return delegate.zRevRangeByScore(key, range);
+		}
+
+		@Override
+		public Set<byte[]> zRevRangeByScore(byte[] key, Range range, Limit limit) {
+			return delegate.zRevRangeByScore(key, range, limit);
+		}
+
+		@Override
+		public Set<Tuple> zRevRangeByScoreWithScores(byte[] key, Range range, Limit limit) {
+			return delegate.zRevRangeByScoreWithScores(key, range, limit);
+		}
+
+		@Override
+		public Long zCount(byte[] key, Range range) {
+			return delegate.zCount(key, range);
+		}
+
+		@Override
+		public Long zRemRangeByScore(byte[] key, Range range) {
+			return delegate.zRemRangeByScore(key, range);
+		}
+
+		@Override
+		public Set<byte[]> zRangeByScore(byte[] key, Range range) {
+			return delegate.zRangeByScore(key, range);
+		}
+
+		@Override
+		public Set<byte[]> zRangeByScore(byte[] key, Range range, Limit limit) {
+			return delegate.zRangeByScore(key, range, limit);
+		}
+
+		@Override
+		public Set<Tuple> zRangeByScoreWithScores(byte[] key, Range range) {
+			return delegate.zRangeByScoreWithScores(key, range);
+		}
+
+		@Override
+		public Set<Tuple> zRevRangeByScoreWithScores(byte[] key, Range range) {
+			return delegate.zRevRangeByScoreWithScores(key, range);
 		}
 	}
 }

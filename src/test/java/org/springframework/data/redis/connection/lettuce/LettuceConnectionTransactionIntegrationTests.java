@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2014 the original author or authors.
+ * Copyright 2011-2015 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,7 +25,6 @@ import org.springframework.data.redis.connection.AbstractConnectionTransactionIn
 import org.springframework.data.redis.connection.DefaultStringRedisConnection;
 import org.springframework.data.redis.connection.StringRedisConnection;
 import org.springframework.data.redis.test.util.RelaxedJUnit4ClassRunner;
-import org.springframework.test.annotation.IfProfileValue;
 import org.springframework.test.context.ContextConfiguration;
 
 /**
@@ -34,16 +33,11 @@ import org.springframework.test.context.ContextConfiguration;
  * @author Jennifer Hickey
  * @author Thomas Darimont
  * @author Christoph Strobl
+ * @author Mark Paluch
  */
 @RunWith(RelaxedJUnit4ClassRunner.class)
 @ContextConfiguration("LettuceConnectionIntegrationTests-context.xml")
 public class LettuceConnectionTransactionIntegrationTests extends AbstractConnectionTransactionIntegrationTests {
-
-	@Test(expected = UnsupportedOperationException.class)
-	@IfProfileValue(name = "redisVersion", value = "2.6+")
-	public void testSRandMemberCountNegative() {
-		super.testSRandMemberCountNegative();
-	}
 
 	@Test
 	public void testMove() {

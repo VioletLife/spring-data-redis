@@ -141,7 +141,7 @@ Needless to say, the configuration is quite similar to that of the other connect
 [[redis:connectors:lettuce]]
 === Configuring Lettuce connector
 
-https://github.com/wg/lettuce[Lettuce] is the fourth open-source connector supported by Spring Data Redis through the `org.springframework.data.redis.connection.lettuce` package.
+https://github.com/mp911de/lettuce[Lettuce] is the fourth open-source connector supported by Spring Data Redis through the `org.springframework.data.redis.connection.lettuce` package.
 
 Its configuration is probably easy to guess:
 
@@ -165,19 +165,42 @@ There are also a few Lettuce-specific connection parameters that can be tweaked.
 
 For dealing with high available Redis there is support for http://redis.io/topics/sentinel[Redis Sentinel] using `RedisSentinelConfiguration`.
 
-NOTE: Please note that currently only http://github.com/xetorthio/jedis[Jedis] supports Redis Sentinel.
+NOTE: Please note that currently only http://github.com/xetorthio/jedis[Jedis] and lettuce http://github.com/mp911de/lettuce[Lettuce] support Redis Sentinel.
 
 [source,java]
 ----
+/**
+ * jedis
+ */
 @Bean 
 public RedisConnectionFactory jedisConnectionFactory() {
   RedisSentinelConfiguration sentinelConfig = new RedisSentinelConfiguration() .master("mymaster")
   .sentinel("127.0.0.1", 26379) .sentinel("127.0.0.1", 26380);
-  return new JedisConnectionFactory(sentinelConfig); 
+  return new JedisConnectionFactory(sentinelConfig);
 } 
+
+/**
+ * lettuce
+ */
+@Bean
+public RedisConnectionFactory lettuceConnectionFactory() {
+  RedisSentinelConfiguration sentinelConfig = new RedisSentinelConfiguration().master("mymaster")
+  .sentinel("127.0.0.1", 26379) .sentinel("127.0.0.1", 26380);
+  return new LettuceConnectionFactory(sentinelConfig);
+}
 ----
 
+[TIP]
+====
+`RedisSentinelConfiguration` can also be defined via `PropertySource`.
+
+.Configuration Properties
+- `spring.redis.sentinel.master`: name of the master node.
+- `spring.redis.sentinel.nodes`: Comma delimited list of host:port pairs.
+====
+
 Sometimes direct interaction with the one of the Sentinels is required. Using `RedisConnectionFactory.getSentinelConnection()` or `RedisConnection.getSentinelCommands()` gives you access to the first active Sentinel configured.
+
 
 [[redis:template]]
 == Working with Objects through RedisTemplate
@@ -208,6 +231,9 @@ Moreover, the template provides operations views (following the grouping from Re
 
 |HashOperations
 |Redis hash operations
+
+|HyperLogLogOperations
+|Redis HyperLogLog operations like (pfadd, pfcount,...)
 
 2+^|_Key Bound Operations_
 
@@ -318,7 +344,7 @@ public void useCallback() {
 [[redis:serializer]]
 == Serializers
 
-From the framework perspective, the data stored in Redis is just bytes. While Redis itself supports various types, for the most part these refer to the way the data is stored rather then what it represents. It is up to the user to decide whether the information gets translated into Strings or any other objects. The conversion between the user (custom) types and raw data (and vice-versa) is handled in Spring Data Redis through the `RedisSerializer` interface (package `org.springframework.data.redis.serializer`) which as the name implies, takes care of the serialization process. Multiple implementations are available out of the box, two of which have been already mentioned before in this documentation: the `StringRedisSerializer` and the `JdkSerializationRedisSerializer`. However one can use `OxmSerializer` for Object/XML mapping through Spring 3 http://docs.spring.io/spring/docs/current/spring-framework-reference/html/oxm.html[OXM] support or either `JacksonJsonRedisSerializer` or `Jackson2JsonRedisSerializer` for storing data in http://en.wikipedia.org/wiki/JSON[JSON] format. Do note that the storage format is not limited only to values - it can be used for keys, values or hashes without any restrictions.
+From the framework perspective, the data stored in Redis is just bytes. While Redis itself supports various types, for the most part these refer to the way the data is stored rather then what it represents. It is up to the user to decide whether the information gets translated into Strings or any other objects. The conversion between the user (custom) types and raw data (and vice-versa) is handled in Spring Data Redis through the `RedisSerializer` interface (package `org.springframework.data.redis.serializer`) which as the name implies, takes care of the serialization process. Multiple implementations are available out of the box, two of which have been already mentioned before in this documentation: the `StringRedisSerializer` and the `JdkSerializationRedisSerializer`. However one can use `OxmSerializer` for Object/XML mapping through Spring 3 http://docs.spring.io/spring/docs/current/spring-framework-reference/html/oxm.html[OXM] support or either `JacksonJsonRedisSerializer`, `Jackson2JsonRedisSerializer` or `GenericJackson2JsonRedisSerializer for storing data in http://en.wikipedia.org/wiki/JSON[JSON] format. Do note that the storage format is not limited only to values - it can be used for keys, values or hashes without any restrictions.
 
 :leveloffset: 2
 include::{referenceDir}/redis-messaging.adoc[]
@@ -398,6 +424,8 @@ Spring Redis provides an implementation for Spring http://docs.spring.io/spring/
 NOTE: By default `RedisCacheManager` will lazily initialize `RedisCache` whenever a `Cache` is requested. This can be changed by predefining a `Set` of cache names.
 
 NOTE: By default `RedisCacheManager` will not participate in any ongoing transaction. Use `setTransactionAware` to enable transaction support.
+
+NOTE: By default `RedisCacheManager` does not prefix keys for cache regions, which can lead to an unexpected growth of a `ZSET` used to maintain known keys. It's highly recommended to enable the usage of prefixes in order to avoid this unexpected growth and potential key clashes using more than one cache region.
 
 [[redis:future]]
 == Roadmap ahead

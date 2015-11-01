@@ -411,9 +411,9 @@ public class JedisConnectionIntegrationTests extends AbstractConnectionIntegrati
 		connection.zAdd("myzset", 1, "one");
 		connection.zAdd("myzset", 2, "two");
 		connection.zAdd("myzset", 3, "three");
-		
+
 		Set<byte[]> zRangeByScore = connection.zRangeByScore("myzset", "(1", "2");
-		
+
 		assertEquals("two", new String(zRangeByScore.iterator().next()));
 	}
 }

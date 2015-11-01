@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2014 the original author or authors.
+ * Copyright 2011-2015 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,6 +19,7 @@ import java.util.Set;
 
 import org.springframework.data.redis.core.Cursor;
 import org.springframework.data.redis.core.ScanOptions;
+import org.springframework.util.Assert;
 
 /**
  * ZSet(SortedSet)-specific commands supported by Redis.
@@ -45,6 +46,163 @@ public interface RedisZSetCommands {
 		byte[] getValue();
 
 		Double getScore();
+	}
+
+	/**
+	 * {@link Range} defines {@literal min} and {@literal max} values to retrieve from a {@literal ZSET}.
+	 * 
+	 * @author Christoph Strobl
+	 * @since 1.6
+	 */
+	public class Range {
+
+		Boundary min;
+		Boundary max;
+
+		/**
+		 * @return new {@link Range}
+		 */
+		public static Range range() {
+			return new Range();
+		}
+
+		/**
+		 * @return new {@link Range} with {@literal min} and {@literal max} set to {@link Boundary#infinite()}.
+		 */
+		public static Range unbounded() {
+
+			Range range = new Range();
+			range.min = Boundary.infinite();
+			range.max = Boundary.infinite();
+			return range;
+		}
+
+		/**
+		 * Greater Than Equals
+		 * 
+		 * @param min
+		 * @return
+		 */
+		public Range gte(Object min) {
+
+			Assert.notNull(min, "Min already set for range.");
+			this.min = new Boundary(min, true);
+			return this;
+		}
+
+		/**
+		 * Greater Than
+		 * 
+		 * @param min
+		 * @return
+		 */
+		public Range gt(Object min) {
+
+			Assert.notNull(min, "Min already set for range.");
+			this.min = new Boundary(min, false);
+			return this;
+		}
+
+		/**
+		 * Less Then Equals
+		 * 
+		 * @param max
+		 * @return
+		 */
+		public Range lte(Object max) {
+
+			Assert.notNull(max, "Max already set for range.");
+			this.max = new Boundary(max, true);
+			return this;
+		}
+
+		/**
+		 * Less Than
+		 * 
+		 * @param max
+		 * @return
+		 */
+		public Range lt(Object max) {
+
+			Assert.notNull(max, "Max already set for range.");
+			this.max = new Boundary(max, false);
+			return this;
+		}
+
+		/**
+		 * @return {@literal null} if not set.
+		 */
+		public Boundary getMin() {
+			return min;
+		}
+
+		/**
+		 * @return {@literal null} if not set.
+		 */
+		public Boundary getMax() {
+			return max;
+		}
+
+		/**
+		 * @author Christoph Strobl
+		 * @since 1.6
+		 */
+		public static class Boundary {
+
+			Object value;
+			boolean including;
+
+			static Boundary infinite() {
+				return new Boundary(null, true);
+			}
+
+			Boundary(Object value, boolean including) {
+				this.value = value;
+				this.including = including;
+			}
+
+			public Object getValue() {
+				return value;
+			}
+
+			public boolean isIncluding() {
+				return including;
+			}
+		}
+
+	}
+
+	/**
+	 * @author Christoph Strobl
+	 * @since 1.6
+	 */
+	public class Limit {
+
+		int offset;
+		int count;
+
+		public static Limit limit() {
+			return new Limit();
+		}
+
+		public Limit offset(int offset) {
+			this.offset = offset;
+			return this;
+		}
+
+		public Limit count(int count) {
+			this.count = count;
+			return this;
+		}
+
+		public int getCount() {
+			return count;
+		}
+
+		public int getOffset() {
+			return offset;
+		}
+
 	}
 
 	/**
@@ -152,6 +310,16 @@ public interface RedisZSetCommands {
 	Set<byte[]> zRangeByScore(byte[] key, double min, double max);
 
 	/**
+	 * Get set of {@link Tuple}s where score is between {@code Range#min} and {@code Range#max} from sorted set.
+	 * 
+	 * @param key
+	 * @param range
+	 * @return
+	 * @since 1.6
+	 */
+	Set<Tuple> zRangeByScoreWithScores(byte[] key, Range range);
+
+	/**
 	 * Get set of {@link Tuple}s where score is between {@code min} and {@code max} from sorted set.
 	 * <p>
 	 * See http://redis.io/commands/zrangebyscore
@@ -194,7 +362,19 @@ public interface RedisZSetCommands {
 	Set<Tuple> zRangeByScoreWithScores(byte[] key, double min, double max, long offset, long count);
 
 	/**
-	 * Get elements in range from {@code begin} to {@code end} from sorted set ordered high -> low.
+	 * Get set of {@link Tuple}s in range from {@code Limit#offset} to {@code Limit#offset + Limit#count} where score is
+	 * between {@code Range#min} and {@code Range#max} from sorted set.
+	 * 
+	 * @param key
+	 * @param range
+	 * @param limit
+	 * @return
+	 * @since 1.6
+	 */
+	Set<Tuple> zRangeByScoreWithScores(byte[] key, Range range, Limit limit);
+
+	/**
+	 * Get elements in range from {@code begin} to {@code end} from sorted set ordered from high to low.
 	 * <p>
 	 * See http://redis.io/commands/zrevrange
 	 * 
@@ -206,7 +386,7 @@ public interface RedisZSetCommands {
 	Set<byte[]> zRevRange(byte[] key, long begin, long end);
 
 	/**
-	 * Get set of {@link Tuple}s in range from {@code begin} to {@code end} from sorted set ordered high -> low.
+	 * Get set of {@link Tuple}s in range from {@code begin} to {@code end} from sorted set ordered from high to low.
 	 * <p>
 	 * See http://redis.io/commands/zrevrange
 	 * 
@@ -218,7 +398,7 @@ public interface RedisZSetCommands {
 	Set<Tuple> zRevRangeWithScores(byte[] key, long begin, long end);
 
 	/**
-	 * Get elements where score is between {@code min} and {@code max} from sorted set ordered high -> low.
+	 * Get elements where score is between {@code min} and {@code max} from sorted set ordered from high to low.
 	 * <p>
 	 * See http://redis.io/commands/zrevrange
 	 * 
@@ -230,7 +410,19 @@ public interface RedisZSetCommands {
 	Set<byte[]> zRevRangeByScore(byte[] key, double min, double max);
 
 	/**
-	 * Get set of {@link Tuple} where score is between {@code min} and {@code max} from sorted set ordered high -> low.
+	 * Get elements where score is between {@code Range#min} and {@code Range#max} from sorted set ordered from high to
+	 * low.
+	 * 
+	 * @param key
+	 * @param range
+	 * @return
+	 * @since 1.6
+	 */
+	Set<byte[]> zRevRangeByScore(byte[] key, Range range);
+
+	/**
+	 * Get set of {@link Tuple} where score is between {@code min} and {@code max} from sorted set ordered from high to
+	 * low.
 	 * <p>
 	 * See http://redis.io/commands/zrevrange
 	 * 
@@ -257,6 +449,18 @@ public interface RedisZSetCommands {
 	Set<byte[]> zRevRangeByScore(byte[] key, double min, double max, long offset, long count);
 
 	/**
+	 * Get elements in range from {@code Limit#offset} to {@code Limit#offset + Limit#count} where score is between
+	 * {@code Range#min} and {@code Range#max} from sorted set ordered high -> low.
+	 * 
+	 * @param key
+	 * @param range
+	 * @param limit
+	 * @return
+	 * @since 1.6
+	 */
+	Set<byte[]> zRevRangeByScore(byte[] key, Range range, Limit limit);
+
+	/**
 	 * Get set of {@link Tuple} in range from {@code begin} to {@code end} where score is between {@code min} and
 	 * {@code max} from sorted set ordered high -> low.
 	 * <p>
@@ -272,6 +476,29 @@ public interface RedisZSetCommands {
 	Set<Tuple> zRevRangeByScoreWithScores(byte[] key, double min, double max, long offset, long count);
 
 	/**
+	 * Get set of {@link Tuple} where score is between {@code Range#min} and {@code Range#max} from sorted set ordered
+	 * from high to low.
+	 * 
+	 * @param key
+	 * @param range
+	 * @return
+	 * @since 1.6
+	 */
+	Set<Tuple> zRevRangeByScoreWithScores(byte[] key, Range range);
+
+	/**
+	 * Get set of {@link Tuple} in range from {@code Limit#offset} to {@code Limit#count} where score is between
+	 * {@code Range#min} and {@code Range#max} from sorted set ordered high -> low.
+	 * 
+	 * @param key
+	 * @param range
+	 * @param limit
+	 * @return
+	 * @since 1.6
+	 */
+	Set<Tuple> zRevRangeByScoreWithScores(byte[] key, Range range, Limit limit);
+
+	/**
 	 * Count number of elements within sorted set with scores between {@code min} and {@code max}.
 	 * <p>
 	 * See http://redis.io/commands/zcount
@@ -282,6 +509,17 @@ public interface RedisZSetCommands {
 	 * @return
 	 */
 	Long zCount(byte[] key, double min, double max);
+
+	/**
+	 * Count number of elements within sorted set with scores between {@code Range#min} and {@code Range#max}.
+	 * 
+	 * @param key
+	 * @param min
+	 * @param max
+	 * @return
+	 * @since 1.6
+	 */
+	Long zCount(byte[] key, Range range);
 
 	/**
 	 * Get the size of sorted set with {@code key}.
@@ -327,6 +565,16 @@ public interface RedisZSetCommands {
 	 * @return
 	 */
 	Long zRemRangeByScore(byte[] key, double min, double max);
+
+	/**
+	 * Remove elements with scores between {@code Range#min} and {@code Range#max} from sorted set with {@code key}.
+	 * 
+	 * @param key
+	 * @param range
+	 * @return
+	 * @since 1.6
+	 */
+	Long zRemRangeByScore(byte[] key, Range range);
 
 	/**
 	 * Union sorted {@code sets} and store result in destination {@code key}.
@@ -400,6 +648,16 @@ public interface RedisZSetCommands {
 	Set<byte[]> zRangeByScore(byte[] key, String min, String max);
 
 	/**
+	 * Get elements where score is between {@code Range#min} and {@code Range#max} from sorted set.
+	 * 
+	 * @param key
+	 * @param range
+	 * @return
+	 * @since 1.6
+	 */
+	Set<byte[]> zRangeByScore(byte[] key, Range range);
+
+	/**
 	 * Get elements in range from {@code begin} to {@code end} where score is between {@code min} and {@code max} from
 	 * sorted set.
 	 * <p>
@@ -414,4 +672,48 @@ public interface RedisZSetCommands {
 	 * @return
 	 */
 	Set<byte[]> zRangeByScore(byte[] key, String min, String max, long offset, long count);
+
+	/**
+	 * Get elements in range from {@code Limit#count} to {@code Limit#offset} where score is between {@code Range#min} and
+	 * {@code Range#max} from sorted set.
+	 * 
+	 * @param key
+	 * @param range
+	 * @param limit
+	 * @return
+	 * @since 1.6
+	 */
+	Set<byte[]> zRangeByScore(byte[] key, Range range, Limit limit);
+
+	/**
+	 * Get all the elements in the sorted set at {@literal key} in lexicographical ordering.
+	 * 
+	 * @param key must not be {@literal null}.
+	 * @return
+	 * @since 1.6
+	 */
+	Set<byte[]> zRangeByLex(byte[] key);
+
+	/**
+	 * Get all the elements in {@link Range} from the sorted set at {@literal key} in lexicographical ordering.
+	 * 
+	 * @param key must not be {@literal null}.
+	 * @param range must not be {@literal null}.
+	 * @return
+	 * @since 1.6
+	 */
+	Set<byte[]> zRangeByLex(byte[] key, Range range);
+
+	/**
+	 * Get all the elements in {@link Range} from the sorted set at {@literal key} in lexicographical ordering. Result is
+	 * limited via {@link Limit}.
+	 * 
+	 * @param key must not be {@literal null}.
+	 * @param range must not be {@literal null}.
+	 * @param range can be {@literal null}.
+	 * @return
+	 * @since 1.6
+	 */
+	Set<byte[]> zRangeByLex(byte[] key, Range range, Limit limit);
+
 }

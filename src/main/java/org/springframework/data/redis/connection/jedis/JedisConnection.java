@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2014 the original author or authors.
+ * Copyright 2011-2015 the original author or authors.
  * 
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -32,6 +32,7 @@ import java.util.concurrent.TimeUnit;
 
 import org.springframework.core.convert.converter.Converter;
 import org.springframework.dao.DataAccessException;
+import org.springframework.dao.InvalidDataAccessApiUsageException;
 import org.springframework.data.redis.ExceptionTranslationStrategy;
 import org.springframework.data.redis.FallbackExceptionTranslationStrategy;
 import org.springframework.data.redis.RedisConnectionFailureException;
@@ -55,6 +56,7 @@ import org.springframework.data.redis.core.ScanIteration;
 import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.data.redis.core.types.RedisClientInfo;
 import org.springframework.util.Assert;
+import org.springframework.util.ClassUtils;
 import org.springframework.util.ObjectUtils;
 import org.springframework.util.ReflectionUtils;
 import org.springframework.util.StringUtils;
@@ -101,18 +103,31 @@ public class JedisConnection extends AbstractRedisConnection {
 			JedisConverters.exceptionConverter());
 
 	static {
+
 		CLIENT_FIELD = ReflectionUtils.findField(BinaryJedis.class, "client", Client.class);
 		ReflectionUtils.makeAccessible(CLIENT_FIELD);
-		SEND_COMMAND = ReflectionUtils.findMethod(Connection.class, "sendCommand", new Class[] { Command.class,
-				byte[][].class });
+
+		try {
+			Class<?> commandType = ClassUtils.isPresent("redis.clients.jedis.ProtocolCommand", null) ? ClassUtils.forName(
+					"redis.clients.jedis.ProtocolCommand", null) : ClassUtils.forName("redis.clients.jedis.Protocol$Command",
+					null);
+
+			SEND_COMMAND = ReflectionUtils.findMethod(Connection.class, "sendCommand", new Class[] { commandType,
+					byte[][].class });
+		} catch (Exception e) {
+			throw new NoClassDefFoundError(
+					"Could not find required flavor of command required by 'redis.clients.jedis.Connection#sendCommand'.");
+		}
+
 		ReflectionUtils.makeAccessible(SEND_COMMAND);
+
 		GET_RESPONSE = ReflectionUtils.findMethod(Queable.class, "getResponse", Builder.class);
 		ReflectionUtils.makeAccessible(GET_RESPONSE);
 	}
 
 	private final Jedis jedis;
 	private final Client client;
-	private final Transaction transaction;
+	private Transaction transaction;
 	private final Pool<Jedis> pool;
 	/** flag indicating whether the connection needs to be dropped or not */
 	private boolean broken = false;
@@ -167,7 +182,6 @@ public class JedisConnection extends AbstractRedisConnection {
 		this.jedis = jedis;
 		// extract underlying connection for batch operations
 		client = (Client) ReflectionUtils.getField(CLIENT_FIELD, jedis);
-		transaction = new Transaction(client);
 
 		this.pool = pool;
 
@@ -726,6 +740,7 @@ public class JedisConnection extends AbstractRedisConnection {
 			throw convertJedisAccessException(ex);
 		} finally {
 			txResults.clear();
+			transaction = null;
 		}
 	}
 
@@ -736,6 +751,10 @@ public class JedisConnection extends AbstractRedisConnection {
 						new LinkedList<FutureResult<Response<?>>>(txResults), JedisConverters.exceptionConverter())));
 				return null;
 			}
+
+			if (transaction == null) {
+				throw new InvalidDataAccessApiUsageException("No ongoing transaction. Did you forget to call multi?");
+			}
 			List<Object> results = transaction.exec();
 			return convertPipelineAndTxResults ? new TransactionResultConverter<Response<?>>(txResults,
 					JedisConverters.exceptionConverter()).convert(results) : results;
@@ -743,6 +762,7 @@ public class JedisConnection extends AbstractRedisConnection {
 			throw convertJedisAccessException(ex);
 		} finally {
 			txResults.clear();
+			transaction = null;
 		}
 	}
 
@@ -831,7 +851,7 @@ public class JedisConnection extends AbstractRedisConnection {
 				pipeline.multi();
 				return;
 			}
-			jedis.multi();
+			this.transaction = jedis.multi();
 		} catch (Exception ex) {
 			throw convertJedisAccessException(ex);
 		}
@@ -2057,6 +2077,24 @@ public class JedisConnection extends AbstractRedisConnection {
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisZSetCommands#zCount(byte[], org.springframework.data.redis.connection.RedisZSetCommands.Range)
+	 */
+	@Override
+	public Long zCount(byte[] key, Range range) {
+
+		if (isPipelined() || isQueueing()) {
+			throw new UnsupportedOperationException(
+					"ZCOUNT not implemented in jedis for binary protocol on transaction and pipeline");
+		}
+
+		byte[] min = JedisConverters.boundaryToBytesForZRange(range.getMin(), JedisConverters.NEGATIVE_INFINITY_BYTES);
+		byte[] max = JedisConverters.boundaryToBytesForZRange(range.getMax(), JedisConverters.POSITIVE_INFINITY_BYTES);
+
+		return jedis.zcount(key, min, max);
+	}
+
 	public Double zIncrBy(byte[] key, double increment, byte[] value) {
 		try {
 			if (isPipelined()) {
@@ -2139,15 +2177,111 @@ public class JedisConnection extends AbstractRedisConnection {
 		}
 	}
 
-	public Set<byte[]> zRangeByScore(byte[] key, double min, double max) {
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisZSetCommands#zRangeByLex(byte[])
+	 */
+	public Set<byte[]> zRangeByLex(byte[] key) {
+		return zRangeByLex(key, Range.unbounded());
+	}
+
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisZSetCommands#zRangeByLex(byte[], org.springframework.data.redis.connection.RedisZSetCommands.Range)
+	 */
+	public Set<byte[]> zRangeByLex(byte[] key, Range range) {
+		return zRangeByLex(key, range, null);
+	}
+
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisZSetCommands#zRangeByLex(byte[], org.springframework.data.redis.connection.RedisZSetCommands.Range, org.springframework.data.redis.connection.RedisZSetCommands.Limit)
+	 */
+	public Set<byte[]> zRangeByLex(byte[] key, Range range, Limit limit) {
+
+		Assert.notNull(range, "Range cannot be null for ZRANGEBYLEX.");
+
+		byte[] min = JedisConverters.boundaryToBytesForZRangeByLex(range.getMin(), JedisConverters.MINUS_BYTES);
+		byte[] max = JedisConverters.boundaryToBytesForZRangeByLex(range.getMax(), JedisConverters.PLUS_BYTES);
+
 		try {
 			if (isPipelined()) {
-				pipeline(new JedisResult(pipeline.zrangeByScore(key, min, max)));
+				if (limit != null) {
+					pipeline(new JedisResult(pipeline.zrangeByLex(key, min, max, limit.getOffset(), limit.getCount())));
+				} else {
+					pipeline(new JedisResult(pipeline.zrangeByLex(key, min, max)));
+				}
 				return null;
 			}
+
 			if (isQueueing()) {
-				transaction(new JedisResult(transaction.zrangeByScore(key, min, max)));
+				if (limit != null) {
+					transaction(new JedisResult(transaction.zrangeByLex(key, min, max, limit.getOffset(), limit.getCount())));
+				} else {
+					transaction(new JedisResult(transaction.zrangeByLex(key, min, max)));
+				}
 				return null;
+			}
+
+			if (limit != null) {
+				return jedis.zrangeByLex(key, min, max, limit.getOffset(), limit.getCount());
+			}
+			return jedis.zrangeByLex(key, min, max);
+		} catch (Exception ex) {
+			throw convertJedisAccessException(ex);
+		}
+	}
+
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisZSetCommands#zRangeByScore(byte[], double, double)
+	 */
+	public Set<byte[]> zRangeByScore(byte[] key, double min, double max) {
+		return zRangeByScore(key, new Range().gte(min).lte(max));
+	}
+
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisZSetCommands#zRangeByScore(byte[], org.springframework.data.redis.connection.RedisZSetCommands.Range)
+	 */
+	@Override
+	public Set<byte[]> zRangeByScore(byte[] key, Range range) {
+		return zRangeByScore(key, range, null);
+	}
+
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisZSetCommands#zRangeByScore(byte[], org.springframework.data.redis.connection.RedisZSetCommands.Range, org.springframework.data.redis.connection.RedisZSetCommands.Limit)
+	 */
+	@Override
+	public Set<byte[]> zRangeByScore(byte[] key, Range range, Limit limit) {
+
+		Assert.notNull(range, "Range cannot be null for ZRANGEBYSCORE.");
+
+		byte[] min = JedisConverters.boundaryToBytesForZRange(range.getMin(), JedisConverters.NEGATIVE_INFINITY_BYTES);
+		byte[] max = JedisConverters.boundaryToBytesForZRange(range.getMax(), JedisConverters.POSITIVE_INFINITY_BYTES);
+
+		try {
+			if (isPipelined()) {
+				if (limit != null) {
+					pipeline(new JedisResult(pipeline.zrangeByScore(key, min, max, limit.getOffset(), limit.getCount())));
+				} else {
+					pipeline(new JedisResult(pipeline.zrangeByScore(key, min, max)));
+				}
+				return null;
+			}
+
+			if (isQueueing()) {
+				if (limit != null) {
+					transaction(new JedisResult(transaction.zrangeByScore(key, min, max, limit.getOffset(), limit.getCount())));
+				} else {
+					transaction(new JedisResult(transaction.zrangeByScore(key, min, max)));
+				}
+				return null;
+			}
+
+			if (limit != null) {
+				return jedis.zrangeByScore(key, min, max, limit.getOffset(), limit.getCount());
 			}
 			return jedis.zrangeByScore(key, min, max);
 		} catch (Exception ex) {
@@ -2155,16 +2289,62 @@ public class JedisConnection extends AbstractRedisConnection {
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisZSetCommands#zRangeByScoreWithScores(byte[], double, double)
+	 */
 	public Set<Tuple> zRangeByScoreWithScores(byte[] key, double min, double max) {
+		return zRangeByScoreWithScores(key, new Range().gte(min).lte(max));
+	}
+
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisZSetCommands#zRangeByScoreWithScores(byte[], org.springframework.data.redis.connection.RedisZSetCommands.Range)
+	 */
+	@Override
+	public Set<Tuple> zRangeByScoreWithScores(byte[] key, Range range) {
+		return zRangeByScoreWithScores(key, range, null);
+	}
+
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisZSetCommands#zRangeByScoreWithScores(byte[], org.springframework.data.redis.connection.RedisZSetCommands.Range, org.springframework.data.redis.connection.RedisZSetCommands.Limit)
+	 */
+	@Override
+	public Set<Tuple> zRangeByScoreWithScores(byte[] key, Range range, Limit limit) {
+
+		Assert.notNull(range, "Range cannot be null for ZRANGEBYSCOREWITHSCORES.");
+
+		byte[] min = JedisConverters.boundaryToBytesForZRange(range.getMin(), JedisConverters.NEGATIVE_INFINITY_BYTES);
+		byte[] max = JedisConverters.boundaryToBytesForZRange(range.getMax(), JedisConverters.POSITIVE_INFINITY_BYTES);
+
 		try {
 			if (isPipelined()) {
-				pipeline(new JedisResult(pipeline.zrangeByScoreWithScores(key, min, max), JedisConverters.tupleSetToTupleSet()));
+				if (limit != null) {
+					pipeline(new JedisResult(
+							pipeline.zrangeByScoreWithScores(key, min, max, limit.getOffset(), limit.getCount()),
+							JedisConverters.tupleSetToTupleSet()));
+				} else {
+					pipeline(new JedisResult(pipeline.zrangeByScoreWithScores(key, min, max),
+							JedisConverters.tupleSetToTupleSet()));
+				}
 				return null;
 			}
+
 			if (isQueueing()) {
-				transaction(new JedisResult(transaction.zrangeByScoreWithScores(key, min, max),
-						JedisConverters.tupleSetToTupleSet()));
+				if (limit != null) {
+					transaction(new JedisResult(transaction.zrangeByScoreWithScores(key, min, max, limit.getOffset(),
+							limit.getCount()), JedisConverters.tupleSetToTupleSet()));
+				} else {
+					transaction(new JedisResult(transaction.zrangeByScoreWithScores(key, min, max),
+							JedisConverters.tupleSetToTupleSet()));
+				}
 				return null;
+			}
+
+			if (limit != null) {
+				return JedisConverters.toTupleSet(jedis.zrangeByScoreWithScores(key, min, max, limit.getOffset(),
+						limit.getCount()));
 			}
 			return JedisConverters.toTupleSet(jedis.zrangeByScoreWithScores(key, min, max));
 		} catch (Exception ex) {
@@ -2187,67 +2367,93 @@ public class JedisConnection extends AbstractRedisConnection {
 		} catch (Exception ex) {
 			throw convertJedisAccessException(ex);
 		}
+
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisZSetCommands#zRangeByScore(byte[], double, double, long, long)
+	 */
+	@Override
 	public Set<byte[]> zRangeByScore(byte[] key, double min, double max, long offset, long count) {
-		try {
-			if (isPipelined()) {
-				pipeline(new JedisResult(pipeline.zrangeByScore(key, min, max, (int) offset, (int) count)));
-				return null;
-			}
-			if (isQueueing()) {
-				transaction(new JedisResult(transaction.zrangeByScore(key, min, max, (int) offset, (int) count)));
-				return null;
-			}
-			return jedis.zrangeByScore(key, min, max, (int) offset, (int) count);
-		} catch (Exception ex) {
-			throw convertJedisAccessException(ex);
-		}
+
+		return zRangeByScore(key, new Range().gte(min).lte(max),
+				new Limit().offset(Long.valueOf(offset).intValue()).count(Long.valueOf(count).intValue()));
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisZSetCommands#zRangeByScoreWithScores(byte[], double, double, long, long)
+	 */
+	@Override
 	public Set<Tuple> zRangeByScoreWithScores(byte[] key, double min, double max, long offset, long count) {
-		try {
-			if (isPipelined()) {
-				pipeline(new JedisResult(pipeline.zrangeByScoreWithScores(key, min, max, (int) offset, (int) count),
-						JedisConverters.tupleSetToTupleSet()));
-				return null;
-			}
-			if (isQueueing()) {
-				transaction(new JedisResult(transaction.zrangeByScoreWithScores(key, min, max, (int) offset, (int) count),
-						JedisConverters.tupleSetToTupleSet()));
-				return null;
-			}
-			return JedisConverters.toTupleSet(jedis.zrangeByScoreWithScores(key, min, max, (int) offset, (int) count));
-		} catch (Exception ex) {
-			throw convertJedisAccessException(ex);
-		}
+
+		return zRangeByScoreWithScores(key, new Range().gte(min).lte(max),
+				new Limit().offset(Long.valueOf(offset).intValue()).count(Long.valueOf(count).intValue()));
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisZSetCommands#zRevRangeByScore(byte[], double, double, long, long)
+	 */
+	@Override
 	public Set<byte[]> zRevRangeByScore(byte[] key, double min, double max, long offset, long count) {
-		try {
-			if (isPipelined()) {
-				pipeline(new JedisResult(pipeline.zrevrangeByScore(key, max, min, (int) offset, (int) count)));
-				return null;
-			}
-			if (isQueueing()) {
-				transaction(new JedisResult(transaction.zrevrangeByScore(key, max, min, (int) offset, (int) count)));
-				return null;
-			}
-			return jedis.zrevrangeByScore(key, max, min, (int) offset, (int) count);
-		} catch (Exception ex) {
-			throw convertJedisAccessException(ex);
-		}
+
+		return zRevRangeByScore(key, new Range().gte(min).lte(max), new Limit().offset(Long.valueOf(offset).intValue())
+				.count(Long.valueOf(count).intValue()));
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisZSetCommands#zRevRangeByScore(byte[], double, double)
+	 */
+	@Override
 	public Set<byte[]> zRevRangeByScore(byte[] key, double min, double max) {
+		return zRevRangeByScore(key, new Range().gte(min).lte(max));
+	}
+
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisZSetCommands#zRevRangeByScore(byte[], org.springframework.data.redis.connection.RedisZSetCommands.Range)
+	 */
+	@Override
+	public Set<byte[]> zRevRangeByScore(byte[] key, Range range) {
+		return zRevRangeByScore(key, range, null);
+	}
+
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisZSetCommands#zRevRangeByScore(byte[], org.springframework.data.redis.connection.RedisZSetCommands.Range, org.springframework.data.redis.connection.RedisZSetCommands.Limit)
+	 */
+	@Override
+	public Set<byte[]> zRevRangeByScore(byte[] key, Range range, Limit limit) {
+
+		Assert.notNull(range, "Range cannot be null for ZREVRANGEBYSCORE.");
+
+		byte[] min = JedisConverters.boundaryToBytesForZRange(range.getMin(), JedisConverters.NEGATIVE_INFINITY_BYTES);
+		byte[] max = JedisConverters.boundaryToBytesForZRange(range.getMax(), JedisConverters.POSITIVE_INFINITY_BYTES);
+
 		try {
 			if (isPipelined()) {
-				pipeline(new JedisResult(pipeline.zrevrangeByScore(key, max, min)));
+				if (limit != null) {
+					pipeline(new JedisResult(pipeline.zrevrangeByScore(key, max, min, limit.getOffset(), limit.getCount())));
+				} else {
+					pipeline(new JedisResult(pipeline.zrevrangeByScore(key, max, min)));
+				}
 				return null;
 			}
+
 			if (isQueueing()) {
-				transaction(new JedisResult(transaction.zrevrangeByScore(key, max, min)));
+				if (limit != null) {
+					transaction(new JedisResult(transaction.zrevrangeByScore(key, max, min, limit.getOffset(), limit.getCount())));
+				} else {
+					transaction(new JedisResult(transaction.zrevrangeByScore(key, max, min)));
+				}
 				return null;
+			}
+
+			if (limit != null) {
+				return jedis.zrevrangeByScore(key, max, min, limit.getOffset(), limit.getCount());
 			}
 			return jedis.zrevrangeByScore(key, max, min);
 		} catch (Exception ex) {
@@ -2255,40 +2461,77 @@ public class JedisConnection extends AbstractRedisConnection {
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisZSetCommands#zRevRangeByScoreWithScores(byte[], double, double, long, long)
+	 */
+	@Override
 	public Set<Tuple> zRevRangeByScoreWithScores(byte[] key, double min, double max, long offset, long count) {
-		try {
-			if (isPipelined()) {
-				pipeline(new JedisResult(pipeline.zrevrangeByScoreWithScores(key, max, min, (int) offset, (int) count),
-						JedisConverters.tupleSetToTupleSet()));
-				return null;
-			}
-			if (isQueueing()) {
-				transaction(new JedisResult(transaction.zrevrangeByScoreWithScores(key, max, min, (int) offset, (int) count),
-						JedisConverters.tupleSetToTupleSet()));
-				return null;
-			}
-			return JedisConverters.toTupleSet(jedis.zrevrangeByScoreWithScores(key, max, min, (int) offset, (int) count));
-		} catch (Exception ex) {
-			throw convertJedisAccessException(ex);
-		}
+
+		return zRevRangeByScoreWithScores(key, new Range().gte(min).lte(max),
+				new Limit().offset(Long.valueOf(offset).intValue()).count(Long.valueOf(count).intValue()));
 	}
 
-	public Set<Tuple> zRevRangeByScoreWithScores(byte[] key, double min, double max) {
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisZSetCommands#zRevRangeByScoreWithScores(byte[], org.springframework.data.redis.connection.RedisZSetCommands.Range)
+	 */
+	@Override
+	public Set<Tuple> zRevRangeByScoreWithScores(byte[] key, Range range) {
+		return zRevRangeByScoreWithScores(key, range, null);
+	}
+
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisZSetCommands#zRevRangeByScoreWithScores(byte[], org.springframework.data.redis.connection.RedisZSetCommands.Range, org.springframework.data.redis.connection.RedisZSetCommands.Limit)
+	 */
+	@Override
+	public Set<Tuple> zRevRangeByScoreWithScores(byte[] key, Range range, Limit limit) {
+
+		Assert.notNull(range, "Range cannot be null for ZREVRANGEBYSCOREWITHSCORES.");
+
+		byte[] min = JedisConverters.boundaryToBytesForZRange(range.getMin(), JedisConverters.NEGATIVE_INFINITY_BYTES);
+		byte[] max = JedisConverters.boundaryToBytesForZRange(range.getMax(), JedisConverters.POSITIVE_INFINITY_BYTES);
+
 		try {
 			if (isPipelined()) {
-				pipeline(new JedisResult(pipeline.zrevrangeByScoreWithScores(key, max, min),
-						JedisConverters.tupleSetToTupleSet()));
+				if (limit != null) {
+					pipeline(new JedisResult(pipeline.zrevrangeByScoreWithScores(key, max, min, limit.getOffset(),
+							limit.getCount()), JedisConverters.tupleSetToTupleSet()));
+				} else {
+					pipeline(new JedisResult(pipeline.zrevrangeByScoreWithScores(key, max, min),
+							JedisConverters.tupleSetToTupleSet()));
+				}
 				return null;
 			}
+
 			if (isQueueing()) {
-				transaction(new JedisResult(transaction.zrevrangeByScoreWithScores(key, max, min),
-						JedisConverters.tupleSetToTupleSet()));
+				if (limit != null) {
+					transaction(new JedisResult(transaction.zrevrangeByScoreWithScores(key, max, min, limit.getOffset(),
+							limit.getCount()), JedisConverters.tupleSetToTupleSet()));
+				} else {
+					transaction(new JedisResult(transaction.zrevrangeByScoreWithScores(key, max, min),
+							JedisConverters.tupleSetToTupleSet()));
+				}
 				return null;
+			}
+
+			if (limit != null) {
+				return JedisConverters.toTupleSet(jedis.zrevrangeByScoreWithScores(key, max, min, limit.getOffset(),
+						limit.getCount()));
 			}
 			return JedisConverters.toTupleSet(jedis.zrevrangeByScoreWithScores(key, max, min));
 		} catch (Exception ex) {
 			throw convertJedisAccessException(ex);
 		}
+	}
+
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisZSetCommands#zRevRangeByScoreWithScores(byte[], double, double)
+	 */
+	public Set<Tuple> zRevRangeByScoreWithScores(byte[] key, double min, double max) {
+		return zRevRangeByScoreWithScores(key, new Range().gte(min).lte(max), null);
 	}
 
 	public Long zRank(byte[] key, byte[] value) {
@@ -2339,7 +2582,27 @@ public class JedisConnection extends AbstractRedisConnection {
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisZSetCommands#zRemRangeByScore(byte[], double, double)
+	 */
+	@Override
 	public Long zRemRangeByScore(byte[] key, double min, double max) {
+		return zRemRangeByScore(key, new Range().gte(min).lte(max));
+	}
+
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisZSetCommands#zRemRangeByScore(byte[], org.springframework.data.redis.connection.RedisZSetCommands.Range)
+	 */
+	@Override
+	public Long zRemRangeByScore(byte[] key, Range range) {
+
+		Assert.notNull(range, "Range cannot be null for ZREMRANGEBYSCORE.");
+
+		byte[] min = JedisConverters.boundaryToBytesForZRange(range.getMin(), JedisConverters.NEGATIVE_INFINITY_BYTES);
+		byte[] max = JedisConverters.boundaryToBytesForZRange(range.getMax(), JedisConverters.POSITIVE_INFINITY_BYTES);
+
 		try {
 			if (isPipelined()) {
 				pipeline(new JedisResult(pipeline.zremrangeByScore(key, min, max)));
@@ -3274,4 +3537,5 @@ public class JedisConnection extends AbstractRedisConnection {
 			throw convertJedisAccessException(ex);
 		}
 	}
+
 }
